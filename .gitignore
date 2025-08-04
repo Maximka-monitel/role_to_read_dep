@@ -1,2 +1,3 @@
 *.xml
-
+*.csv
+!Sample.csv
