@@ -60,7 +60,7 @@ def add_role_structure_multiple_datagroups(rdf, NSMAP, org_name, dep_name, folde
         etree.SubElement(priv, '{%s}Privilege.DataItems' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_" + dg_uid})
     etree.SubElement(priv, '{%s}Privilege.Operation' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_2000065d-0000-0000-c000-0000006d746c"})
 
-def process_single_csv_file(folder_uid, csv_file_path, log_callback=None):
+def process_all_csv_from_list(folder_uid, csv_dir, file_list, log_callback=None):
     NSMAP = {
         'rdf': "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
         'md': "http://iec.ch/TC57/61970-552/ModelDescription/1#",
@@ -68,81 +68,77 @@ def process_single_csv_file(folder_uid, csv_file_path, log_callback=None):
     }
     required_fields = ['org_name', 'dep_name', 'dep_uid']
 
-    # 1. Читаем все строки, строим карту dep_uid => dep_headdep_uid
-    with open(csv_file_path, 'rb') as f:
-        rawdata = f.read(10000)
-        detected = chardet.detect(rawdata)
-        enc = detected['encoding']
-    if log_callback:
-        log_callback(f"Открытие файла в кодировке: {enc}\n")
-
-    dep_rows = []
-    dep_headdep = {}      # dep_uid -> dep_headdep_uid
-    dep_info = {}         # dep_uid -> (org_name, dep_name)
-    with open(csv_file_path, encoding=enc) as csvfile:
-        reader = csv.DictReader(csvfile, delimiter=';')
-        for row in reader:
-            ok, err_msg = check_required_fields(row, required_fields)
-            if not ok:
-                continue
-            dep_uid = row['dep_uid']
-            dep_name = row['dep_name']
-            dep_headdep_uid = row.get('dep_headdep_uid', '').strip()
-            org_name = row.get('org_name', '')
-            dep_rows.append(row)
-            dep_headdep[dep_uid] = dep_headdep_uid
-            dep_info[dep_uid] = (org_name, dep_name)
-
-    # 2. Найти headdep_uid'ы — те кто встречается в значении dep_headdep_uid хотя бы раз
-    headdep_uids = set(filter(None, [row.get('dep_headdep_uid', '').strip() for row in dep_rows]))
-
-    # 3. Для headdep ищем все департаменты, которыми он "руководит" (dep_uid где dep_headdep_uid == этот uid)
-    dep_children = {}  # headdep_uid -> [dep_uid,...]
-    for row in dep_rows:
-        d_uid = row['dep_uid']
-        hd_uid = row.get('dep_headdep_uid', '').strip()
-        if hd_uid:
-            dep_children.setdefault(hd_uid, []).append(d_uid)
-
-    # 4. Создать datagroup для каждого отдела
-    rdf = create_rdf_root(NSMAP)
-    datagroup_map = {}  # dep_uid -> datagroup_uid
-    for dep_uid, (org_name, dep_name) in dep_info.items():
-        datagroup_uid = add_datagroup_structure(rdf, NSMAP, org_name, dep_name, dep_uid)
-        datagroup_map[dep_uid] = datagroup_uid
-
-    # 5. Создать role для каждого отдела — обычную или headdep
-    for dep_uid, (org_name, dep_name) in dep_info.items():
-        if dep_uid in headdep_uids:
-            # Данный dep_uid — headdep! Даем ему читать себя И все отделы, где он headdep
-            under_deps = dep_children.get(dep_uid, [])
-            accessible = set(under_deps)
-            accessible.add(dep_uid)  # сам headdep тоже должен видеть свой отдел
-            datagroup_uids = [datagroup_map[x] for x in accessible if x in datagroup_map]
-            add_role_structure_multiple_datagroups(rdf, NSMAP, org_name, dep_name, folder_uid, datagroup_uids)
+    for csv_filename in file_list:
+        xml_filename = os.path.splitext(csv_filename)[0] + '.xml'
+        log_prefix = f"[{csv_filename}] "
+        try:
+            # --- Анализируем структуру файла -----
+            csv_file_path = os.path.join(csv_dir, csv_filename)
+            with open(csv_file_path, 'rb') as f:
+                rawdata = f.read(10000)
+                detected = chardet.detect(rawdata)
+                enc = detected['encoding']
             if log_callback:
-                log_callback(f"{dep_uid}: headdep, доступ к {len(datagroup_uids)} департаментам\n")
-        else:
-            # Обычный отдел — только свой datagroup
-            add_role_structure_multiple_datagroups(rdf, NSMAP, org_name, dep_name, folder_uid, [datagroup_map[dep_uid]])
+                log_callback(f"{log_prefix}Открытие файла в кодировке: {enc}\n")
+
+            dep_rows = []
+            dep_headdep = {}      # dep_uid -> dep_headdep_uid
+            dep_info = {}         # dep_uid -> (org_name, dep_name)
+            with open(csv_file_path, encoding=enc) as csvfile:
+                reader = csv.DictReader(csvfile, delimiter=';')
+                for row in reader:
+                    ok, err_msg = check_required_fields(row, required_fields)
+                    if not ok:
+                        continue
+                    dep_uid = row['dep_uid']
+                    dep_name = row['dep_name']
+                    dep_headdep_uid = row.get('dep_headdep_uid', '').strip()
+                    org_name = row.get('org_name', '')
+                    dep_rows.append(row)
+                    dep_headdep[dep_uid] = dep_headdep_uid
+                    dep_info[dep_uid] = (org_name, dep_name)
+
+            # 2. Найти headdep_uid'ы — те кто встречается в значении dep_headdep_uid хотя бы раз
+            headdep_uids = set(filter(None, [row.get('dep_headdep_uid', '').strip() for row in dep_rows]))
+
+            # 3. Для headdep ищем все департаменты, которыми он "руководит"
+            dep_children = {}  # headdep_uid -> [dep_uid,...]
+            for row in dep_rows:
+                d_uid = row['dep_uid']
+                hd_uid = row.get('dep_headdep_uid', '').strip()
+                if hd_uid:
+                    dep_children.setdefault(hd_uid, []).append(d_uid)
+
+            # 4. Создать datagroup для каждого отдела
+            rdf = create_rdf_root(NSMAP)
+            datagroup_map = {}  # dep_uid -> datagroup_uid
+            for dep_uid, (org_name, dep_name) in dep_info.items():
+                datagroup_uid = add_datagroup_structure(rdf, NSMAP, org_name, dep_name, dep_uid)
+                datagroup_map[dep_uid] = datagroup_uid
+
+            # 5. Создать role для каждого отдела — обычную или headdep
+            for dep_uid, (org_name, dep_name) in dep_info.items():
+                if dep_uid in headdep_uids:
+                    under_deps = dep_children.get(dep_uid, [])
+                    accessible = set(under_deps)
+                    accessible.add(dep_uid)
+                    datagroup_uids = [datagroup_map[x] for x in accessible if x in datagroup_map]
+                    add_role_structure_multiple_datagroups(rdf, NSMAP, org_name, dep_name, folder_uid, datagroup_uids)
+                    if log_callback:
+                        log_callback(f"{log_prefix}{dep_uid}: headdep, доступ к {len(datagroup_uids)} департаментам\n")
+                else:
+                    add_role_structure_multiple_datagroups(rdf, NSMAP, org_name, dep_name, folder_uid, [datagroup_map[dep_uid]])
+                    if log_callback:
+                        log_callback(f"{log_prefix}{dep_uid}: обычный департамент\n")
+
+            # Сохраняем XML
+            etree.indent(rdf, space="  ")
+            xml_bytes = etree.tostring(rdf, xml_declaration=True, encoding='utf-8', pretty_print=True)
+            out_path = os.path.join(csv_dir, xml_filename)
+            with open(out_path, "wb") as f:
+                f.write(xml_bytes)
             if log_callback:
-                log_callback(f"{dep_uid}: обычный департамент\n")
-
-    # 6. Сохраняем XML
-    etree.indent(rdf, space="  ")
-    xml_bytes = etree.tostring(rdf, xml_declaration=True, encoding='utf-8', pretty_print=True)
-    out_path = os.path.splitext(csv_file_path)[0] + ".xml"
-    with open(out_path, "wb") as f:
-        f.write(xml_bytes)
-    if log_callback:
-        log_callback(f"Готово! {os.path.basename(out_path)} сформирован из {os.path.basename(csv_file_path)}\n")
-
-# Для запуска через командную строку
-if __name__ == '__main__':
-    import sys
-    if len(sys.argv) == 3:
-        uid = sys.argv[1]
-        fname = sys.argv[2]
-        process_single_csv_file(uid, fname, print)
-    else:
-        print("Использование: python main.py <UID> <csv-файл>")
+                log_callback(f"{log_prefix}Готово! {xml_filename} сформирован из {csv_filename}\n")
+        except Exception as e:
+            if log_callback:
+                log_callback(f"{log_prefix}Критическая ошибка: {e}\n")
