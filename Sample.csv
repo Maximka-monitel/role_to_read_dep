@@ -1,3 +1,4 @@
-dep_uid;dep_name;dep_headdep_uid;dep_headdep_name;org_uid;org_name
-fc7f76ef-e381-4659-82f6-2e7a5ba097b8;Подр_1;123;Деп_1;768a-09;Орг_1
-ab19b2d1-1f66-4ee8-b690-111111111111;Подр_2;234;Деп_2;823a-02;Орг_2
+dep_uid;dep_name;dep_headdep_uid;org_uid;org_name
+fc7f76ef-e381-4659-82f6-2e7a5ba097b8;Подр_1;8383B7DD-AAAD-4F10-ADEF-D50FD7974D9D;768a-09;Орг_1
+ab19b2d1-1f66-4ee8-b690-111111111111;Подр_2;8383B7DD-AAAD-4F10-ADEF-D50FD7974D9D;768a-09;Орг_1
+8383B7DD-AAAD-4F10-ADEF-D50FD7974D9D;Гол подр;;768a-09;Орг_1
