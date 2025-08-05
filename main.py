@@ -4,6 +4,8 @@ import uuid
 import csv
 from lxml import etree
 from datetime import datetime
+import logging
+import sys
 
 def gen_uid():
     return str(uuid.uuid4())
@@ -60,6 +62,40 @@ def add_role_structure_multiple_datagroups(rdf, NSMAP, org_name, dep_name, folde
         etree.SubElement(priv, '{%s}Privilege.DataItems' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_" + dg_uid})
     etree.SubElement(priv, '{%s}Privilege.Operation' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_2000065d-0000-0000-c000-0000006d746c"})
 
+class UILogHandler(logging.Handler):
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.callback(msg + "\n")
+        except Exception:
+            pass
+
+def make_log_dir(csv_dir):
+    log_dir = os.path.join(csv_dir, "log")
+    os.makedirs(log_dir, exist_ok=True)
+    return log_dir
+
+def setup_logger(log_dir, csv_filename, callback=None):
+    basename = os.path.splitext(os.path.basename(csv_filename))[0]
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    log_path = os.path.join(log_dir, f"{basename}_{date_str}.log")
+    logger = logging.getLogger(log_path)
+    logger.setLevel(logging.INFO)
+    fmt = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s", "%Y-%m-%d %H:%M:%S")
+    file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    file_handler.setFormatter(fmt)
+    logger.handlers = []
+    logger.addHandler(file_handler)
+    if callback:
+        ui_handler = UILogHandler(callback)
+        ui_handler.setFormatter(fmt)
+        logger.addHandler(ui_handler)
+    return logger
+
 def process_all_csv_from_list(folder_uid, csv_dir, file_list, log_callback=None):
     NSMAP = {
         'rdf': "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
@@ -68,55 +104,61 @@ def process_all_csv_from_list(folder_uid, csv_dir, file_list, log_callback=None)
     }
     required_fields = ['org_name', 'dep_name', 'dep_uid']
 
+    log_dir = make_log_dir(csv_dir)
+
     for csv_filename in file_list:
         xml_filename = os.path.splitext(csv_filename)[0] + '.xml'
-        log_prefix = f"[{csv_filename}] "
+        logger = setup_logger(log_dir, csv_filename, log_callback)
+        roles_added = 0
         try:
-            # --- Анализируем структуру файла -----
             csv_file_path = os.path.join(csv_dir, csv_filename)
-            with open(csv_file_path, 'rb') as f:
-                rawdata = f.read(10000)
-                detected = chardet.detect(rawdata)
-                enc = detected['encoding']
-            if log_callback:
-                log_callback(f"{log_prefix}Открытие файла в кодировке: {enc}\n")
+            logger.info(f"Старт обработки файла {csv_filename} → {xml_filename}")
+
+            try:
+                with open(csv_file_path, 'rb') as f:
+                    rawdata = f.read(10000)
+                    detected = chardet.detect(rawdata)
+                    enc = detected['encoding']
+            except Exception as e:
+                logger.error(f"Ошибка чтения CSV-файла {csv_filename}: {e}")
+                continue
 
             dep_rows = []
-            dep_headdep = {}      # dep_uid -> dep_headdep_uid
-            dep_info = {}         # dep_uid -> (org_name, dep_name)
-            with open(csv_file_path, encoding=enc) as csvfile:
-                reader = csv.DictReader(csvfile, delimiter=';')
-                for row in reader:
-                    ok, err_msg = check_required_fields(row, required_fields)
-                    if not ok:
-                        continue
-                    dep_uid = row['dep_uid']
-                    dep_name = row['dep_name']
-                    dep_headdep_uid = row.get('dep_headdep_uid', '').strip()
-                    org_name = row.get('org_name', '')
-                    dep_rows.append(row)
-                    dep_headdep[dep_uid] = dep_headdep_uid
-                    dep_info[dep_uid] = (org_name, dep_name)
+            dep_headdep = {}
+            dep_info = {}
+            try:
+                with open(csv_file_path, encoding=enc) as csvfile:
+                    reader = csv.DictReader(csvfile, delimiter=';')
+                    for row in reader:
+                        ok, err_msg = check_required_fields(row, required_fields)
+                        if not ok:
+                            logger.error(f"Ошибка в строке CSV: {err_msg}. Строка: {row}")
+                            continue
+                        dep_uid = row['dep_uid']
+                        dep_name = row['dep_name']
+                        dep_headdep_uid = row.get('dep_headdep_uid', '').strip()
+                        org_name = row.get('org_name', '')
+                        dep_rows.append(row)
+                        dep_headdep[dep_uid] = dep_headdep_uid
+                        dep_info[dep_uid] = (org_name, dep_name)
+            except Exception as e:
+                logger.error(f"Ошибка чтения CSV-файла {csv_filename}: {e}")
+                continue
 
-            # 2. Найти headdep_uid'ы — те кто встречается в значении dep_headdep_uid хотя бы раз
             headdep_uids = set(filter(None, [row.get('dep_headdep_uid', '').strip() for row in dep_rows]))
-
-            # 3. Для headdep ищем все департаменты, которыми он "руководит"
-            dep_children = {}  # headdep_uid -> [dep_uid,...]
+            dep_children = {}
             for row in dep_rows:
                 d_uid = row['dep_uid']
                 hd_uid = row.get('dep_headdep_uid', '').strip()
                 if hd_uid:
                     dep_children.setdefault(hd_uid, []).append(d_uid)
 
-            # 4. Создать datagroup для каждого отдела
             rdf = create_rdf_root(NSMAP)
-            datagroup_map = {}  # dep_uid -> datagroup_uid
+            datagroup_map = {}
             for dep_uid, (org_name, dep_name) in dep_info.items():
                 datagroup_uid = add_datagroup_structure(rdf, NSMAP, org_name, dep_name, dep_uid)
                 datagroup_map[dep_uid] = datagroup_uid
 
-            # 5. Создать role для каждого отдела — обычную или headdep
             for dep_uid, (org_name, dep_name) in dep_info.items():
                 if dep_uid in headdep_uids:
                     under_deps = dep_children.get(dep_uid, [])
@@ -124,21 +166,50 @@ def process_all_csv_from_list(folder_uid, csv_dir, file_list, log_callback=None)
                     accessible.add(dep_uid)
                     datagroup_uids = [datagroup_map[x] for x in accessible if x in datagroup_map]
                     add_role_structure_multiple_datagroups(rdf, NSMAP, org_name, dep_name, folder_uid, datagroup_uids)
-                    if log_callback:
-                        log_callback(f"{log_prefix}{dep_uid}: headdep, доступ к {len(datagroup_uids)} департаментам\n")
+                    roles_added += 1
                 else:
                     add_role_structure_multiple_datagroups(rdf, NSMAP, org_name, dep_name, folder_uid, [datagroup_map[dep_uid]])
-                    if log_callback:
-                        log_callback(f"{log_prefix}{dep_uid}: обычный департамент\n")
+                    roles_added += 1
 
-            # Сохраняем XML
             etree.indent(rdf, space="  ")
             xml_bytes = etree.tostring(rdf, xml_declaration=True, encoding='utf-8', pretty_print=True)
             out_path = os.path.join(csv_dir, xml_filename)
-            with open(out_path, "wb") as f:
-                f.write(xml_bytes)
-            if log_callback:
-                log_callback(f"{log_prefix}Готово! {xml_filename} сформирован из {csv_filename}\n")
+            try:
+                with open(out_path, "wb") as f:
+                    f.write(xml_bytes)
+                logger.info(f"Завершена обработка файла. Всего добавлено ролей: {roles_added}. XML сохранён: {xml_filename}")
+            except Exception as e:
+                logger.error(f"Ошибка записи XML-файла {xml_filename}: {e}")
         except Exception as e:
-            if log_callback:
-                log_callback(f"{log_prefix}Критическая ошибка: {e}\n")
+            logger.error(f"Критическая ошибка при обработке файла {csv_filename}: {e}")
+
+def debug_cli():
+    print("="*50)
+    print("Отладочный режим пакетного конвертера CSV ➔ XML.")
+    if len(sys.argv) >= 3:
+        folder_uid = sys.argv[1]
+        csv_dir = sys.argv[2]
+    else:
+        folder_uid = input('Введите UID папки для ролей: ').strip()
+        csv_dir = input('Укажите папку с CSV-файлами (или . для текущей): ').strip() or '.'
+    if not os.path.isdir(csv_dir):
+        print(f"Папка не найдена: {csv_dir}")
+        return
+    all_files = [f for f in os.listdir(csv_dir) if f.lower().endswith('.csv') and f.lower() != 'sample.csv']
+    if not all_files:
+        print("Нет подходящих .csv файлов в указанной папке.")
+        return
+
+    print("Будут обработаны файлы:")
+    for f in all_files:
+        print("  ", f)
+    print("-"*30)
+
+    def cli_log(msg):
+        print(msg, end='' if msg.endswith('\n') else '\n')
+
+    process_all_csv_from_list(folder_uid, csv_dir, all_files, log_callback=cli_log)
+    print("Готово.")
+
+if __name__ == '__main__':
+    debug_cli()
