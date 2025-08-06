@@ -22,9 +22,10 @@ ROLE_TEMPLATE='Чтение записей под подр-ю {org_name}\\{dep_n
 
 def gen_uid() -> str:
     """Генерирует уникальный идентификатор."""
+    import uuid
     return str(uuid.uuid4())
 
-def check_required_fields(row: dict, required_fields: List[str]) -> list[bool, str]:
+def check_required_fields(row: dict, required_fields: list) -> list:
     """Проверяет обязательные поля в записи CSV."""
     for field in required_fields:
         val = row.get(field)
@@ -34,12 +35,30 @@ def check_required_fields(row: dict, required_fields: List[str]) -> list[bool, s
 
 def make_log_dir(csv_dir: str) -> str:
     """Создаёт директорию для логов."""
+    import os
     log_dir = os.path.join(csv_dir, "log")
     os.makedirs(log_dir, exist_ok=True)
     return log_dir
 
-def setup_logger(log_dir: str, csv_filename: str, callback: Optional[Callable[[str], None]] = None) -> logging.Logger:
+class UILogHandler(logging.Handler):
+    """Handler для вывода логов в интерфейс."""
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.callback(msg + "\n")
+        except Exception:
+            pass
+
+def setup_logger(log_dir: str, csv_filename: str, callback=None) -> logging.Logger:
     """Настраивает логгер для файла."""
+    import os
+    from datetime import datetime
+    import logging
+
     basename = os.path.splitext(os.path.basename(csv_filename))[0]
     date_str = datetime.now().strftime("%Y-%m-%d")
     log_path = os.path.join(log_dir, f"{basename}_{date_str}.log")
@@ -56,21 +75,9 @@ def setup_logger(log_dir: str, csv_filename: str, callback: Optional[Callable[[s
         logger.addHandler(ui_handler)
     return logger
 
-class UILogHandler(logging.Handler):
-    """Handler для вывода логов в интерфейс."""
-    def __init__(self, callback):
-        super().__init__()
-        self.callback = callback
-
-    def emit(self, record):
-        try:
-            msg = self.format(record)
-            self.callback(msg + "\n")
-        except Exception:
-            pass
-
 def read_encoding(file_path: str) -> str:
     """Определяет кодировку файла."""
+    import chardet
     with open(file_path, 'rb') as f:
         rawdata = f.read(10000)
     encoding = chardet.detect(rawdata)['encoding']
@@ -78,8 +85,9 @@ def read_encoding(file_path: str) -> str:
         raise ValueError(f"Не удалось определить кодировку файла {file_path}")
     return encoding
 
-def iter_csv_rows(csv_file_path: str, encoding: str, required_fields: List[str], logger: logging.Logger):
+def iter_csv_rows(csv_file_path: str, encoding: str, required_fields: list, logger) -> list:
     """Генератор: итерирует валидные строки CSV с номером строки."""
+    import csv
     with open(csv_file_path, encoding=encoding) as csvfile:
         reader = csv.DictReader(csvfile, delimiter=';')
         for line_num, row in enumerate(reader, start=2):
@@ -89,14 +97,15 @@ def iter_csv_rows(csv_file_path: str, encoding: str, required_fields: List[str],
                 continue
             yield line_num, row
 
-def collect_dep_info_and_tree(csv_file_path: str, encoding: str, logger: logging.Logger):
+def collect_dep_info_and_tree(csv_file_path: str, encoding: str, logger):
     """Собирает dep_info и dep_tree одним проходом по CSV."""
-    dep_info: Dict[str, tuple] = {}
-    dep_tree: Dict[str, Set[str]] = {}
+    import csv
+    dep_info = {}
+    dep_tree = {}
     with open(csv_file_path, encoding=encoding) as csvfile:
         reader = csv.DictReader(csvfile, delimiter=';')
         for row in reader:
-            ok, _ = check_required_fields(row, REQUIRED_FIELDS)
+            ok, _ = check_required_fields(row, ['org_name', 'dep_name', 'dep_uid'])
             if not ok:
                 continue
             dep_uid = row['dep_uid']
@@ -108,7 +117,7 @@ def collect_dep_info_and_tree(csv_file_path: str, encoding: str, logger: logging
                 dep_tree.setdefault(dep_headdep_uid, set()).add(dep_uid)
     return dep_info, dep_tree
 
-def collect_all_children(dep_tree: Dict[str, Set[str]], head_uid: str) -> Set[str]:
+def collect_all_children(dep_tree: dict, head_uid: str) -> set:
     """Рекурсивно собирает UID всех потомков и самого head_uid."""
     res = set()
     def crawler(uid: str):
@@ -124,12 +133,28 @@ def process_csv_file_stream(
     csv_dir: str,
     csv_filename: str,
     log_dir: str,
-    logger: logging.Logger
+    logger,
+    allow_headdep_recursive: bool = True
 ) -> None:
     """
     Потоковая обработка большого CSV-файла.
     Все элементы XML пишутся по мере чтения строк.
     """
+    import os
+    from lxml import etree
+    from lxml.etree import xmlfile
+    from datetime import datetime
+
+    NSMAP = {
+        'rdf': "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        'md': "http://iec.ch/TC57/61970-552/ModelDescription/1#",
+        'cim': "http://monitel.com/2021/schema-access#"
+    }
+    REQUIRED_FIELDS = ['org_name', 'dep_name', 'dep_uid']
+    MODEL_VERSION = "2025-03-04(11.7.1.7)"
+    MODEL_NAME = "Access"
+    ROLE_TEMPLATE = 'Чтение записей под подр-ю {org_name}\\{dep_name}'
+
     xml_filename = os.path.splitext(csv_filename)[0] + '.xml'
     csv_file_path = os.path.join(csv_dir, csv_filename)
     xml_file_path = os.path.join(csv_dir, xml_filename)
@@ -141,25 +166,21 @@ def process_csv_file_stream(
         logger.error(f"Ошибка чтения CSV-файла {csv_filename}: {e}")
         return
 
-    # Первый проход — строим dep_info и dep_tree
     dep_info, dep_tree = collect_dep_info_and_tree(csv_file_path, encoding, logger)
     headdep_uids = set(dep_tree.keys())
-    datagroup_map: Dict[str, str] = {}
+    datagroup_map = {}
 
     roles_added = 0
 
     try:
         with xmlfile(xml_file_path, encoding='utf-8') as xf:
             with xf.element('{%s}RDF' % NSMAP['rdf'], nsmap=NSMAP):
-                # Метаинформация
                 fullmodel_uid = gen_uid()
                 with xf.element('{%s}FullModel' % NSMAP['md'], attrib={'{%s}about' % NSMAP['rdf']: '#_' + fullmodel_uid}):
                     time_str = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
                     xf.write(etree.Element('{%s}Model.created' % NSMAP['md'], text=time_str + "Z"))
                     xf.write(etree.Element('{%s}Model.version' % NSMAP['md'], text=MODEL_VERSION))
                     xf.write(etree.Element('{http://monitel.com/2014/schema-cim16#}Model.name', text=MODEL_NAME))
-
-                # --- Записываем DataGroups и ObjectReferences
                 for dep_uid, (org_name, dep_name, _parent_uid) in dep_info.items():
                     datagroup_uid = gen_uid()
                     datagroup_map[dep_uid] = datagroup_uid
@@ -172,12 +193,9 @@ def process_csv_file_stream(
                         xf.write(etree.Element('{%s}DataGroup.Class' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_50000dc6-0000-0000-c000-0000006d746c"}))
                         objref_uid = gen_uid()
                         xf.write(etree.Element('{%s}DataGroup.Objects' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_" + objref_uid}))
-                        # ObjectReference
                         with xf.element('{%s}ObjectReference' % NSMAP['cim'], attrib={'{%s}about' % NSMAP['rdf']: "#_" + objref_uid}):
                             xf.write(etree.Element('{%s}ObjectReference.objectUid' % NSMAP['cim'], text=dep_uid))
                             xf.write(etree.Element('{%s}ObjectReference.Group' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_" + datagroup_uid}))
-
-                # --- Пишем Role/Privilege по строкам CSV
                 for line_num, row in iter_csv_rows(csv_file_path, encoding, REQUIRED_FIELDS, logger):
                     dep_uid = row['dep_uid']
                     org_name = row.get('org_name', '')
@@ -194,17 +212,19 @@ def process_csv_file_stream(
                     with xf.element('{%s}Privilege' % NSMAP['cim'], attrib={'{%s}about' % NSMAP['rdf']: "#_" + privilege_uid}):
                         xf.write(etree.Element('{%s}Privilege.Role' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_" + role_uid}))
                         if dep_uid in headdep_uids:
-                            all_included = collect_all_children(dep_tree, dep_uid)
-                            datagroup_uids = [datagroup_map[x] for x in all_included if x in datagroup_map]
-                            uids_str = ', '.join(sorted(all_included))
-                            for dg_uid in datagroup_uids:
-                                xf.write(etree.Element('{%s}Privilege.DataItems' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_" + dg_uid}))
-                            logger.info(
-                                f"Строка {line_num}: Добавляется роль: {ROLE_TEMPLATE}, headdep_uid={dep_uid}, доступ к {len(datagroup_uids)} подразделениям: [{uids_str}]")
+                            if allow_headdep_recursive:
+                                all_included = collect_all_children(dep_tree, dep_uid)
+                                datagroup_uids = [datagroup_map[x] for x in all_included if x in datagroup_map]
+                                uids_str = ', '.join(sorted(all_included))
+                                for dg_uid in datagroup_uids:
+                                    xf.write(etree.Element('{%s}Privilege.DataItems' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_" + dg_uid}))
+                                logger.info(f"Строка {line_num}: Добавляется роль: {ROLE_TEMPLATE}, режим рекурсивного поиска ={allow_headdep_recursive}, headdep_uid={dep_uid}, доступ к {len(datagroup_uids)} подразделениям: [{uids_str}]")
+                            else:
+                                xf.write(etree.Element('{%s}Privilege.DataItems' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_" + datagroup_map[dep_uid]}))
+                                logger.info(f"Строка {line_num}: Добавляется роль: {ROLE_TEMPLATE}, режим рекурсивного поиска ={allow_headdep_recursive}, headdep_uid={dep_uid} (только своё подразделение)")
                         else:
                             xf.write(etree.Element('{%s}Privilege.DataItems' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_" + datagroup_map[dep_uid]}))
-                            logger.info(
-                                f"Строка {line_num}: Добавляется роль: {ROLE_TEMPLATE}, dep_uid={dep_uid}")
+                            logger.info(f"Строка {line_num}: Добавляется роль: {ROLE_TEMPLATE}, dep_uid={dep_uid}")
                         xf.write(etree.Element('{%s}Privilege.Operation' % NSMAP['cim'], attrib={'{%s}resource' % NSMAP['rdf']: "#_2000065d-0000-0000-c000-0000006d746c"}))
                     roles_added += 1
         logger.info(f"Завершена обработка файла. Всего добавлено ролей: {roles_added}. XML сохранён: {xml_filename}")
@@ -214,14 +234,18 @@ def process_csv_file_stream(
 def process_all_csv_from_list(
     folder_uid: str,
     csv_dir: str,
-    file_list: List[str],
-    log_callback: Optional[Callable[[str], None]] = None
+    file_list: list,
+    log_callback=None,
+    allow_headdep_recursive: bool = True
 ):
-    """Обрабатывает все указанные CSV-файлы."""
     log_dir = make_log_dir(csv_dir)
     for csv_filename in file_list:
         logger = setup_logger(log_dir, csv_filename, log_callback)
-        process_csv_file_stream(folder_uid, csv_dir, csv_filename, log_dir, logger)
+        process_csv_file_stream(
+            folder_uid, csv_dir, csv_filename, log_dir, logger,
+            allow_headdep_recursive=allow_headdep_recursive
+        )
+
 
 def debug_cli():
     """CLI для пакетного запуска."""
@@ -247,7 +271,7 @@ def debug_cli():
     print("-"*25)
     def cli_log(msg):
         print(msg, end='' if msg.endswith('\n') else '\n')
-    process_all_csv_from_list(folder_uid, csv_dir, all_files, log_callback=cli_log)
+    process_all_csv_from_list(folder_uid, csv_dir, all_files, log_callback=cli_log, allow_headdep_recursive=True)
     print("Готово.")
 
 if __name__ == '__main__':
