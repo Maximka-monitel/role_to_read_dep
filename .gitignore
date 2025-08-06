@@ -2,3 +2,7 @@
 *.csv
 !Sample.csv
 /log
+/dist
+/build
+*.spec
+__pycache__

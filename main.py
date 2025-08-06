@@ -85,7 +85,7 @@ def setup_logger(log_dir, csv_filename, callback=None):
     log_path = os.path.join(log_dir, f"{basename}_{date_str}.log")
     logger = logging.getLogger(log_path)
     logger.setLevel(logging.INFO)
-    fmt = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s", "%Y-%m-%d %H:%M:%S")
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s]: %(message)s", "%Y-%m-%d %H:%M:%S")
     file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
     file_handler.setFormatter(fmt)
     logger.handlers = []
@@ -124,52 +124,76 @@ def process_all_csv_from_list(folder_uid, csv_dir, file_list, log_callback=None)
                 continue
 
             dep_rows = []
-            dep_headdep = {}
             dep_info = {}
             try:
                 with open(csv_file_path, encoding=enc) as csvfile:
                     reader = csv.DictReader(csvfile, delimiter=';')
-                    for row in reader:
+                    for line_num, row in enumerate(reader, start=2):
                         ok, err_msg = check_required_fields(row, required_fields)
                         if not ok:
-                            logger.error(f"Ошибка в строке CSV: {err_msg}. Строка: {row}")
+                            logger.error(f"Строка {line_num}: {err_msg}. Строка: {row}")
                             continue
                         dep_uid = row['dep_uid']
                         dep_name = row['dep_name']
                         dep_headdep_uid = row.get('dep_headdep_uid', '').strip()
                         org_name = row.get('org_name', '')
-                        dep_rows.append(row)
-                        dep_headdep[dep_uid] = dep_headdep_uid
-                        dep_info[dep_uid] = (org_name, dep_name)
+                        dep_rows.append((line_num, row))
+                        dep_info[dep_uid] = (org_name, dep_name, dep_headdep_uid)
             except Exception as e:
                 logger.error(f"Ошибка чтения CSV-файла {csv_filename}: {e}")
                 continue
 
-            headdep_uids = set(filter(None, [row.get('dep_headdep_uid', '').strip() for row in dep_rows]))
-            dep_children = {}
-            for row in dep_rows:
-                d_uid = row['dep_uid']
-                hd_uid = row.get('dep_headdep_uid', '').strip()
-                if hd_uid:
-                    dep_children.setdefault(hd_uid, []).append(d_uid)
+            # Определим все headdep_uids (те, кто встречается в dep_headdep_uid хотя бы раз)
+            headdep_uids = set(
+                filter(None, [row[1].get('dep_headdep_uid', '').strip() for row in dep_rows])
+            )
+            # Строим дерево: headdep_uid -> set(children dep_uid)
+            dep_tree = {}
+            for _ln, row in dep_rows:
+                dep_uid = row['dep_uid']
+                parent_uid = row.get('dep_headdep_uid', '').strip()
+                if parent_uid:
+                    dep_tree.setdefault(parent_uid, set()).add(dep_uid)
+            # Вспомогательная функция сбора всех потомков (рекурсивно)
+            def collect_all_children(head_uid):
+                res = set()
+                def crawler(uid):
+                    res.add(uid)
+                    for ch in dep_tree.get(uid, []):
+                        if ch not in res:
+                            crawler(ch)
+                crawler(head_uid)
+                return res
 
             rdf = create_rdf_root(NSMAP)
             datagroup_map = {}
-            for dep_uid, (org_name, dep_name) in dep_info.items():
+            for dep_uid, (org_name, dep_name, _parent_uid) in dep_info.items():
                 datagroup_uid = add_datagroup_structure(rdf, NSMAP, org_name, dep_name, dep_uid)
                 datagroup_map[dep_uid] = datagroup_uid
 
-            for dep_uid, (org_name, dep_name) in dep_info.items():
-                if dep_uid in headdep_uids:
-                    under_deps = dep_children.get(dep_uid, [])
-                    accessible = set(under_deps)
-                    accessible.add(dep_uid)
-                    datagroup_uids = [datagroup_map[x] for x in accessible if x in datagroup_map]
-                    add_role_structure_multiple_datagroups(rdf, NSMAP, org_name, dep_name, folder_uid, datagroup_uids)
+            for line_num, row in dep_rows:
+                dep_uid = row['dep_uid']
+                org_name = row.get('org_name', '')
+                dep_name = row.get('dep_name', '')
+                try:
+                    if dep_uid in headdep_uids:
+                        all_included = collect_all_children(dep_uid)
+                        datagroup_uids = [datagroup_map[x] for x in all_included if x in datagroup_map]
+                        uids_str = ', '.join(sorted(all_included))
+                        add_role_structure_multiple_datagroups(
+                            rdf, NSMAP, org_name, dep_name, folder_uid, datagroup_uids)
+                        logger.info(
+                            f"Строка {line_num}: Добавляется роль: {org_name}\\{dep_name}, headdep_uid={dep_uid}, доступ к {len(datagroup_uids)} подразделениям: [{uids_str}]")
+                    else:
+                        add_role_structure_multiple_datagroups(
+                            rdf, NSMAP, org_name, dep_name, folder_uid, [datagroup_map[dep_uid]])
+                        logger.info(
+                            f"Строка {line_num}: Добавляется роль: {org_name}\\{dep_name}, dep_uid={dep_uid}")
                     roles_added += 1
-                else:
-                    add_role_structure_multiple_datagroups(rdf, NSMAP, org_name, dep_name, folder_uid, [datagroup_map[dep_uid]])
-                    roles_added += 1
+                except Exception as e:
+                    logger.error(
+                        f"Ошибка при обработке строки {line_num} в {csv_filename}: {type(e).__name__}: {e}")
+
 
             etree.indent(rdf, space="  ")
             xml_bytes = etree.tostring(rdf, xml_declaration=True, encoding='utf-8', pretty_print=True)
@@ -181,7 +205,9 @@ def process_all_csv_from_list(folder_uid, csv_dir, file_list, log_callback=None)
             except Exception as e:
                 logger.error(f"Ошибка записи XML-файла {xml_filename}: {e}")
         except Exception as e:
-            logger.error(f"Критическая ошибка при обработке файла {csv_filename}: {e}")
+            logger.error(f"Критическая ошибка при обработке файла {csv_filename}: {type(e).__name__}: {e}")
+
+
 
 def debug_cli():
     print("="*50)
