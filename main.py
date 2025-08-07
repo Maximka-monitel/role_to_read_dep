@@ -20,7 +20,7 @@ NSMAP = {
 REQUIRED_FIELDS = ['org_name', 'dep_name', 'dep_uid']
 MODEL_VERSION = "2025-03-04(11.7.1.7)"
 MODEL_NAME = "Access"
-ROLE_TEMPLATE = 'Чтение записей под подр-ю {org_name}\\{dep_name}'
+# ROLE_TEMPLATE = f'Чтение записей под подр-ю {org_name}\\{dep_name}'
 
 
 def gen_uid() -> str:
@@ -148,16 +148,6 @@ def process_csv_file_stream(
     Потоковая обработка большого CSV-файла.
     Все элементы XML пишутся по мере чтения строк.
     """
-    NSMAP = {
-        'rdf': "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-        'md': "http://iec.ch/TC57/61970-552/ModelDescription/1#",
-        'cim': "http://monitel.com/2021/schema-access#"
-    }
-    REQUIRED_FIELDS = ['org_name', 'dep_name', 'dep_uid']
-    MODEL_VERSION = "2025-03-04(11.7.1.7)"
-    MODEL_NAME = "Access"
-    ROLE_TEMPLATE = 'Чтение записей под подр-ю {org_name}\\{dep_name}'
-
     xml_filename = os.path.splitext(csv_filename)[0] + '.xml'
     csv_file_path = os.path.join(csv_dir, csv_filename)
     xml_file_path = os.path.join(csv_dir, xml_filename)
@@ -220,7 +210,7 @@ def process_csv_file_stream(
                     privilege_uid = gen_uid()
                     with xf.element('{%s}Role' % NSMAP['cim'], attrib={'{%s}about' % NSMAP['rdf']: "#_" + role_uid}):
                         xf.write(etree.Element(
-                            '{%s}IdentifiedObject.name' % NSMAP['cim'], text=ROLE_TEMPLATE))
+                            '{%s}IdentifiedObject.name' % NSMAP['cim'], text=f'Чтение записей под подр-ю {org_name}\\{dep_name}'))
                         xf.write(etree.Element('{%s}IdentifiedObject.ParentObject' % NSMAP['cim'], attrib={
                                  '{%s}resource' % NSMAP['rdf']: "#_" + folder_uid}))
                         xf.write(etree.Element(
@@ -245,17 +235,17 @@ def process_csv_file_stream(
                                     xf.write(etree.Element('{%s}Privilege.DataItems' % NSMAP['cim'], attrib={
                                              '{%s}resource' % NSMAP['rdf']: "#_" + dg_uid}))
                                 logger.info(
-                                    f"Строка {line_num}: Добавляется роль: {ROLE_TEMPLATE}, режим рекурсивного поиска ={allow_headdep_recursive}, headdep_uid={dep_uid}, доступ к {len(datagroup_uids)} подразделениям: [{uids_str}]")
+                                    f"Строка {line_num}: Добавляется роль: Чтение записей под подр-ю {org_name}\\{dep_name}, режим рекурсивного поиска ={allow_headdep_recursive}, headdep_uid={dep_uid}, доступ к {len(datagroup_uids)} подразделениям: [{uids_str}]")
                             else:
                                 xf.write(etree.Element('{%s}Privilege.DataItems' % NSMAP['cim'], attrib={
                                          '{%s}resource' % NSMAP['rdf']: "#_" + datagroup_map[dep_uid]}))
                                 logger.info(
-                                    f"Строка {line_num}: Добавляется роль: {ROLE_TEMPLATE}, режим рекурсивного поиска ={allow_headdep_recursive}, headdep_uid={dep_uid} (только своё подразделение)")
+                                    f"Строка {line_num}: Добавляется роль: Чтение записей под подр-ю {org_name}\\{dep_name}, режим рекурсивного поиска ={allow_headdep_recursive}, headdep_uid={dep_uid} (только своё подразделение)")
                         else:
                             xf.write(etree.Element('{%s}Privilege.DataItems' % NSMAP['cim'], attrib={
                                      '{%s}resource' % NSMAP['rdf']: "#_" + datagroup_map[dep_uid]}))
                             logger.info(
-                                f"Строка {line_num}: Добавляется роль: {ROLE_TEMPLATE}, dep_uid={dep_uid}")
+                                f"Строка {line_num}: Добавляется роль: Чтение записей под подр-ю {org_name}\\{dep_name}, dep_uid={dep_uid}")
                         xf.write(etree.Element('{%s}Privilege.Operation' % NSMAP['cim'], attrib={
                                  '{%s}resource' % NSMAP['rdf']: "#_2000065d-0000-0000-c000-0000006d746c"}))
                     roles_added += 1
