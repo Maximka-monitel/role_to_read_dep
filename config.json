@@ -5,7 +5,9 @@
       "model_version": "2025-03-04(11.7.1.7)",
       "model_name": "Access",
       "role_template": "Чтение записей под подр-ю {org_name}\\{dep_name}",
-      "allow_headdep_recursive": true
+      "allow_headdep_recursive": true,
+      "default_delimiter": ";"
+      
     },
     
     "xml_generation": {
@@ -17,7 +19,7 @@
     },
     
     "file_management": {
-      "exclude_files": ["sample.csv"],
+      "exclude_files": ["Sample.csv"],
       "log_directory": "log"
     },
     

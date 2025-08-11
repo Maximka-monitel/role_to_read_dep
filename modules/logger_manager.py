@@ -7,8 +7,7 @@ import logging
 from datetime import datetime
 from typing import Callable, Optional
 from pathlib import Path
-
-
+from .config_manager import get_config_value
 class LogHandler(logging.Handler):
     """Базовый класс для кастомных лог handlers."""
     
@@ -58,9 +57,9 @@ class LoggerConfig:
     
     def __init__(
         self,
-        level: int = logging.INFO,
-        format_string: str = "%(asctime)s [%(levelname)s]: %(message)s",
-        date_format: str = "%Y-%m-%d %H:%M:%S"
+        level: int = get_config_value('logging.level'),
+        format_string: str = get_config_value('logging.format'),
+        date_format: str = get_config_value('logging.date_format')
     ):
         """
         Инициализация конфигурации.

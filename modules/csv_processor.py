@@ -14,13 +14,14 @@ from .csv_reader import (
 )
 from .xml_generator import create_access_generator
 
+# Вместо констант:
+from .config_manager import get_config_value
 
-# Глобальные константы для обработки
-REQUIRED_FIELDS = ['org_name', 'dep_name', 'dep_uid']
-MODEL_VERSION = "2025-03-04(11.7.1.7)"
-MODEL_NAME = "Access"
-ROLE_TEMPLATE = 'Чтение записей под подр-ю {org_name}\\{dep_name}'
-PARENT_FIELD = 'dep_headdep_uid'
+class CSVProcessor:
+    def __init__(self):
+        self.required_fields = get_config_value('csv_processing.required_fields')
+        self.model_version = get_config_value('csv_processing.model_version')
+        # и т.д.
 
 
 class CSVProcessor:
@@ -28,11 +29,11 @@ class CSVProcessor:
     
     def __init__(self):
         """Инициализация процессора."""
-        self.required_fields = REQUIRED_FIELDS
-        self.model_version = MODEL_VERSION
-        self.model_name = MODEL_NAME
-        self.role_template = ROLE_TEMPLATE
-        self.parent_field = PARENT_FIELD
+        self.required_fields = get_config_value('csv_processing.required_fields')
+        self.model_version = get_config_value('csv_processing.model_version')
+        self.model_name = get_config_value('csv_processing.model_name')
+        self.role_template = get_config_value('csv_processing.role_template')
+        self.parent_field = get_config_value('csv_processing.parent_field')
     
     def process_csv_file_stream(
         self,

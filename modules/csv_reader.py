@@ -7,6 +7,13 @@ import chardet
 import csv
 import os
 from typing import Dict, List, Tuple, Generator, Callable, Any
+# Вместо констант:
+from .config_manager import get_config_value
+
+REQUIRED_FIELDS = get_config_value('csv_processing.required_fields')
+PARENT_FIELD = get_config_value('csv_processing.parent_field')
+DEFAULT_DELIMITER = get_config_value('csv_processing.parent_field')
+DEFAULT_EXCLUDE_FILES = get_config_value('file_management.exclude_files')
 
 # Добавьте в начало файла modules/csv_reader.py:
 import uuid

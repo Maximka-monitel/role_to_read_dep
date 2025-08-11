@@ -4,7 +4,7 @@ import os
 import threading
 import subprocess
 import sys
-
+from modules.config_manager import get_config_value
 # Импортируем обработчик из main.py:
 try:
     from main import process_all_csv_from_list
@@ -116,7 +116,9 @@ file_list = []
 populate_file_list()
 
 # Чекбокс для опции headdep:
-allow_recursive_var = tk.BooleanVar(value=True)
+allow_recursive_var = tk.BooleanVar(
+    value=get_config_value('csv_processing.allow_headdep_recursive', True)
+)
 allow_recursive_cb = tk.Checkbutton(
     root, 
     text="Рекурсивный доступ к дочерним подразделениям",

@@ -18,7 +18,7 @@ from modules.csv_reader import get_csv_files
 from modules.csv_processor import create_batch_processor
 from modules.file_manager import create_file_manager, create_cli_manager
 from modules.logger_manager import create_logger_manager, LoggerConfig
-
+from modules.config_manager import get_config_value
 
 
 def process_all_csv_from_list(
@@ -26,7 +26,7 @@ def process_all_csv_from_list(
     csv_dir: str,
     file_list: List[str],
     log_callback: Callable[[str], None] = None,
-    allow_headdep_recursive: bool = True
+    allow_headdep_recursive = get_config_value('csv_processing.allow_headdep_recursive')
 ) -> dict:
     """
     Обрабатывает список CSV файлов через пакетный процессор.

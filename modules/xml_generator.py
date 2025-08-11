@@ -8,7 +8,7 @@ from datetime import datetime
 from lxml import etree
 from lxml.etree import xmlfile
 from typing import Dict, List, Set, Any, Callable
-
+from .config_manager import get_config_value
 
 def gen_uid() -> str:
     """Генерирует уникальный идентификатор."""
@@ -25,10 +25,7 @@ class XMLGenerator:
         Args:
             namespaces: словарь пространств имен {prefix: uri}
         """
-        self.namespaces = namespaces or {
-            'rdf': "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-            'md': "http://iec.ch/TC57/61970-552/ModelDescription/1#"
-        }
+        self.namespaces = get_config_value('xml_generation.namespaces')
         self.default_model_version = "1.0.0"
         self.default_model_name = "GeneratedModel"
     

@@ -8,7 +8,11 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
+from .config_manager import get_config_value
 
+# В методах класса:
+exclude_files = get_config_value('file_management.exclude_files')
+log_directory = get_config_value('file_management.log_directory')
 
 class FileManager:
     """Класс для управления файлами и директориями."""
@@ -34,7 +38,7 @@ class FileManager:
             List[str]: список имен CSV файлов
         """
         if exclude_files is None:
-            exclude_files = ['sample.csv']
+            exclude_files 
         
         exclude_files = [f.lower() for f in exclude_files]
         csv_files = []
@@ -57,7 +61,7 @@ class FileManager:
         Returns:
             str: путь к директории логов
         """
-        self.log_directory = self.base_directory / "log"
+        self.log_directory = self.base_directory / log_directory
         self.log_directory.mkdir(exist_ok=True)
         return str(self.log_directory)
     
