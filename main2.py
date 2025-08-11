@@ -7,7 +7,13 @@ import logging
 from typing import List, Callable
 from pathlib import Path
 import sys
+<<<<<<< HEAD
 import os
+=======
+from typing import List, Dict, Set, Callable, Optional
+from datetime import datetime
+
+>>>>>>> f3bc9367c09594d73514ef6762205d40fb62d91c
 
 # Добавляем путь к папке modules в системный путь
 modules_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'modules')
@@ -18,6 +24,7 @@ from modules.csv_reader import get_csv_files
 from modules.csv_processor import create_batch_processor
 from modules.file_manager import create_file_manager, create_cli_manager
 from modules.logger_manager import create_logger_manager, LoggerConfig
+
 
 
 def process_all_csv_from_list(
@@ -104,6 +111,7 @@ def debug_cli():
                 print(f"  - {filename}")
     
     cli_manager.print_completion_message()
+
 
 
 if __name__ == '__main__':
