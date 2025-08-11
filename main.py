@@ -7,13 +7,7 @@ import logging
 from typing import List, Callable
 from pathlib import Path
 import sys
-<<<<<<< HEAD
 import os
-=======
-from typing import List, Dict, Set, Callable, Optional
-from datetime import datetime
-
->>>>>>> f3bc9367c09594d73514ef6762205d40fb62d91c
 
 # Добавляем путь к папке modules в системный путь
 modules_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'modules')
