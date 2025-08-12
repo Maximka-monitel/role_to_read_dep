@@ -3,15 +3,14 @@
 Координирует работу всех модулей из папки modules
 """
 
-import logging
+
 from typing import List, Callable
-from pathlib import Path
 import sys
 import os
 
 # Добавляем путь к папке modules в системный путь
-modules_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'modules')
-sys.path.insert(0, modules_path)
+# modules_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'modules')
+# sys.path.insert(0, modules_path)
 
 # Импортируем модули из папки modules
 from modules.csv_reader import get_csv_files
@@ -26,18 +25,19 @@ def process_all_csv_from_list(
     csv_dir: str,
     file_list: List[str],
     log_callback: Callable[[str], None] = None,
-    allow_headdep_recursive = get_config_value('csv_processing.allow_headdep_recursive')
+    allow_headdep_recursive=get_config_value(
+        'csv_processing.allow_headdep_recursive')
 ) -> dict:
     """
     Обрабатывает список CSV файлов через пакетный процессор.
-    
+
     Args:
         folder_uid: UID папки для ролей
         csv_dir: директория с CSV файлами
         file_list: список файлов для обработки
         log_callback: callback для логов UI
         allow_headdep_recursive: разрешить рекурсивный доступ
-        
+
     Returns:
         dict: результаты обработки
     """
@@ -45,24 +45,24 @@ def process_all_csv_from_list(
     file_manager = create_file_manager(csv_dir)
     logger_manager = create_logger_manager()
     batch_processor = create_batch_processor()
-    
+
     # Создаем директорию для логов
     log_dir = file_manager.create_log_directory()
-    
+
     # Фабрика логгеров
     def logger_factory(filename: str):
         log_path = file_manager.get_log_path(filename)
         config = LoggerConfig()
         return logger_manager.create_logger(
-            log_path, log_file_path=log_path, 
+            log_path, log_file_path=log_path,
             ui_callback=log_callback, config=config
         )
-    
+
     # Обрабатываем файлы
     results = batch_processor.process_file_list(
         folder_uid, csv_dir, file_list, logger_factory, allow_headdep_recursive
     )
-    
+
     return results
 
 
@@ -71,13 +71,13 @@ def debug_cli():
     # Создаем менеджеры
     cli_manager = create_cli_manager()
     logger_manager = create_logger_manager()
-    
+
     # Получаем параметры
     folder_uid, csv_dir = cli_manager.get_cli_parameters()
-    
+
     # Создаем файловый менеджер
     file_manager = create_file_manager(csv_dir)
-    
+
     # Проверяем и получаем список файлов
     csv_files = cli_manager.validate_and_list_files(file_manager)
     if not csv_files:
@@ -85,27 +85,26 @@ def debug_cli():
 
     def cli_log(msg):
         print(msg, end='' if msg.endswith('\n') else '\n')
-    
+
     # Обрабатываем файлы
     results = process_all_csv_from_list(
-        folder_uid, csv_dir, csv_files, 
-        log_callback=cli_log, 
+        folder_uid, csv_dir, csv_files,
+        log_callback=cli_log,
         allow_headdep_recursive=True
     )
-    
+
     # Выводим результаты
     successful = sum(1 for success in results.values() if success)
     total = len(results)
     print(f"Обработано файлов: {successful}/{total}")
-    
+
     if successful < total:
         print("Ошибки в файлах:")
         for filename, success in results.items():
             if not success:
                 print(f"  - {filename}")
-    
-    cli_manager.print_completion_message()
 
+    cli_manager.print_completion_message()
 
 
 if __name__ == '__main__':
