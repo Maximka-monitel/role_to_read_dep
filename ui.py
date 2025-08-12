@@ -5,6 +5,17 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
+
+def resource_path(relative_path):
+    """Получение правильного пути к ресурсу, работает как для скрипта, так и для .exe"""
+    try:
+        # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 # Имитация config manager
 
 
@@ -14,11 +25,26 @@ def get_config_value(key, default=None):
 
 # Импортируем обработчик из main.py:
 try:
+    # Для .exe файла добавляем путь к modules в sys.path
+    if getattr(sys, 'frozen', False):
+        script_dir = os.path.dirname(sys.executable)
+        modules_path = os.path.join(script_dir, 'modules')
+        if os.path.exists(modules_path) and modules_path not in sys.path:
+            sys.path.insert(0, modules_path)
+        # Также добавляем текущую директорию
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
+
     from main import process_all_csv_from_list
-except ImportError:
+    IMPORT_SUCCESS = True
+except ImportError as e:
+    print(f"Import error: {e}")
+    IMPORT_SUCCESS = False
+
     def process_all_csv_from_list(folder_uid, csv_dir, file_list, log_callback, allow_headdep_recursive=True):
+        log_callback(f'Ошибка импорта: {e}\n')
         for fn in file_list:
-            log_callback(f'Обрабатывается: {fn}\n')
+            log_callback(f'Обрабатывается (заглушка): {fn}\n')
         log_callback('Выполнено (заглушка)\n')
 
 
@@ -302,8 +328,25 @@ class CSVProcessorApp(QMainWindow):
         log_group.setLayout(log_layout)
         main_layout.addWidget(log_group)
 
+        # Добавляем отладочную информацию в лог при запуске
+        self.add_startup_info()
+
         # Применяем светлую тему
         self.apply_light_theme()
+
+    def add_startup_info(self):
+        """Добавление отладочной информации при запуске"""
+        self.add_log("=== Информация о запуске ===\n")
+        self.add_log(f"Executable: {getattr(sys, 'frozen', False)}\n")
+        self.add_log(f"MEIPASS: {getattr(sys, '_MEIPASS', 'Not found')}\n")
+        self.add_log(f"Current dir: {os.getcwd()}\n")
+        self.add_log(
+            f"Script dir: {os.path.dirname(os.path.abspath(__file__))}\n")
+        if getattr(sys, 'frozen', False):
+            self.add_log(f"Executable path: {sys.executable}\n")
+            self.add_log(
+                f"Executable dir: {os.path.dirname(sys.executable)}\n")
+        self.add_log("============================\n")
 
     def apply_light_theme(self):
         # Светлая палитра
@@ -434,17 +477,30 @@ class CSVProcessorApp(QMainWindow):
 
         # Очищаем лог
         self.log_text.clear()
+        self.add_log("=== Начало обработки ===\n")
+        self.add_log(f"UID: {uid}\n")
+        self.add_log(f"CSV директория: {csv_dir}\n")
+        self.add_log(f"Выбрано файлов: {len(selected_files)}\n")
+        self.add_log(f"Рекурсивный режим: {allow_recursive}\n")
+        self.add_log("========================\n")
 
         # Запускаем обработку в отдельном потоке
         def run_job():
             try:
+                if IMPORT_SUCCESS:
+                    self.add_log("Импорт main.py успешен\n")
+                else:
+                    self.add_log("Импорт main.py не удался\n")
+
                 process_all_csv_from_list(
                     uid, csv_dir, selected_files, self.add_log,
                     allow_headdep_recursive=allow_recursive
                 )
                 self.add_log("Обработка завершена.\n")
             except Exception as e:
-                self.add_log(f"Ошибка: {e}\n")
+                import traceback
+                self.add_log(f"Ошибка: {str(e)}\n")
+                self.add_log(f"Traceback: {traceback.format_exc()}\n")
 
         thread = threading.Thread(target=run_job, daemon=True)
         thread.start()
@@ -452,6 +508,9 @@ class CSVProcessorApp(QMainWindow):
     def add_log(self, text):
         # Исправленный метод для обновления лога из другого потока
         self.log_text.appendPlainText(text)
+        # Прокручиваем вниз
+        self.log_text.verticalScrollBar().setValue(
+            self.log_text.verticalScrollBar().maximum())
 
     def open_results_folder(self):
         folder = self.csv_path_input.text()
