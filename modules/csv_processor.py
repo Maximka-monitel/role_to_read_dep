@@ -84,21 +84,10 @@ class CSVProcessor:
                 dep_name = info.get('dep_name', '')
 
                 datagroup_uid = gen_uid()
-                datagroup_map[dep_uid] = datagroup_uid
-
-                xml_generator.add_data_group(
-                    xf, datagroup_uid, f'{org_name}\\{dep_name}',
-                    "50000dc6-0000-0000-c000-0000006d746c"  # фиксированный родитель
+                dg_uid, objref_uid = xml_generator.add_data_group(
+                    xf, org_name, dep_name, dep_uid, datagroup_uid
                 )
-
-                # Добавляем ObjectReference
-                objref_uid = gen_uid()
-                with xf.element('{%s}ObjectReference' % NSMAP['cim'],
-                                attrib={'{%s}about' % NSMAP['rdf']: "#_" + objref_uid}):
-                    xf.write(etree.Element('{%s}ObjectReference.objectUid' % NSMAP['cim'],
-                                           text=dep_uid))
-                    xf.write(etree.Element('{%s}ObjectReference.Group' % NSMAP['cim'],
-                                           attrib={'{%s}resource' % NSMAP['rdf']: "#_" + datagroup_uid}))
+                datagroup_map[dep_uid] = dg_uid
 
             # Обрабатываем строки CSV и создаем роли
             for line_num, row in iter_csv_rows(csv_file_path, encoding, self.required_fields, logger):
@@ -114,22 +103,27 @@ class CSVProcessor:
                     data_items_uids = [datagroup_map[x]
                                        for x in all_included if x in datagroup_map]
                     uids_str = ', '.join(sorted(all_included))
-                    logger.info(f"Строка {line_num}: Добавляется роль: {self.role_template}, "
+
+                    # Форматируем реальное имя роли
+                    role_name = self.role_template.format(
+                        org_name=org_name, dep_name=dep_name)
+                    logger.info(f"Строка {line_num}: Добавляется роль: {role_name}, "
                                 f"режим рекурсивного поиска ={allow_headdep_recursive}, "
                                 f"headdep_uid={dep_uid}, доступ к {len(data_items_uids)} подразделениям: [{uids_str}]")
+
                 else:
                     # Доступ только к конкретному подразделению
                     if dep_uid in datagroup_map:
                         data_items_uids = [datagroup_map[dep_uid]]
+                        role_name = self.role_template.format(
+                            org_name=org_name, dep_name=dep_name)
                         mode_info = f"headdep_uid={dep_uid} (только своё подразделение)" if dep_uid in headdep_uids else f"dep_uid={dep_uid}"
-                        logger.info(f"Строка {line_num}: Добавляется роль: {self.role_template}, "
+                        logger.info(f"Строка {line_num}: Добавляется роль: {role_name}, "
                                     f"режим рекурсивного поиска ={allow_headdep_recursive}, {mode_info}")
 
                 # Создаем роль с привилегиями
-                role_name = self.role_template.format(
-                    org_name=org_name, dep_name=dep_name)
                 xml_generator.add_role_with_privilege(
-                    xf, role_name, folder_uid, data_items_uids
+                    xf, org_name, dep_name, folder_uid, data_items_uids
                 )
                 roles_added += 1
 

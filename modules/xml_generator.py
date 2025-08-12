@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 import lxml.etree as etree
 from lxml.etree import xmlfile
-from typing import Dict, List, Callable
+from typing import Dict, List, Callable, Tuple
 from .config_manager import get_config_value
 
 
@@ -25,8 +25,10 @@ class XMLGenerator:
         """
         # Загружаем namespaces из config.json
         self.namespaces = get_config_value('xml_generation.namespaces') or {}
-        self.default_model_version = "1.0.0"
-        self.default_model_name = "GeneratedModel"
+        self.default_model_version = get_config_value(
+            'csv_processing.model_version') or "1.0.0"
+        self.default_model_name = get_config_value(
+            'csv_processing.model_name') or "GeneratedModel"
 
     def generate_xml(
         self,
@@ -38,9 +40,8 @@ class XMLGenerator:
         Генерирует XML файл используя переданный генератор контента.
         """
         with xmlfile(output_file, encoding=encoding) as xf:
-            # Добавляем XML декларацию и processing instructions
+            # Добавляем XML декларацию
             xf.write_declaration()
-            # Note: processing instructions нужно добавить отдельно
 
             with xf.element('{%s}RDF' % self.namespaces['rdf'], nsmap=self.namespaces):
                 content_generator(xf)
@@ -53,8 +54,7 @@ class XMLGenerator:
         self,
         xf: xmlfile,
         model_version: str = None,
-        model_name: str = None,
-        additional_elements: List[Dict] = None
+        model_name: str = None
     ) -> str:
         """
         Добавляет элемент FullModel с метаданными.
@@ -65,8 +65,7 @@ class XMLGenerator:
 
         with xf.element('{%s}FullModel' % self.namespaces.get('md', ''),
                         attrib={'{%s}about' % self.namespaces['rdf']: '#_' + model_uid}):
-            time_str = datetime.now().strftime(
-                '%Y-%m-%dT%H:%M:%S.%f')[:-3] + "Z"
+            time_str = datetime.now().strftime('%Y-%m-%dT%H:%M:%S') + "Z"
 
             # Используем xf.element для правильных префиксов
             with xf.element('{%s}Model.created' % self.namespaces.get('md', '')):
@@ -80,8 +79,7 @@ class XMLGenerator:
             # Добавляем Model.name с пространством имен из config
             me_namespace = get_config_value('xml_generation.me_namespace')
             if me_namespace:
-                me_ns = me_namespace
-                with xf.element('{%s}Model.name' % me_ns, nsmap={'me': me_ns}):
+                with xf.element('{%s}Model.name' % me_namespace, nsmap={'me': me_namespace}):
                     xf.write(model_name)
             else:
                 # fallback если не указано в config
@@ -89,70 +87,8 @@ class XMLGenerator:
                     xf.write(model_name)
             self._add_newline(xf)
 
-            # Добавляем дополнительные элементы если указаны
-            if additional_elements:
-                for elem in additional_elements:
-                    ns = elem.get('namespace', 'md')
-                    ns_uri = self.namespaces.get(ns, '')
-                    with xf.element('{%s}%s' % (ns_uri, elem['name'])):
-                        if elem.get('text'):
-                            xf.write(elem.get('text', ''))
-                    self._add_newline(xf)
-
         self._add_newline(xf)
         return model_uid
-
-    def add_custom_element(
-        self,
-        xf: xmlfile,
-        element_name: str,
-        namespace: str,
-        attributes: Dict[str, str] = None,
-        text: str = None,
-        child_elements: List[Dict] = None
-    ) -> None:
-        """
-        Добавляет пользовательский элемент XML.
-        """
-        ns_uri = self.namespaces.get(namespace, '')
-        attrib = attributes or {}
-
-        # Обрабатываем RDF атрибуты правильно
-        processed_attrib = {}
-        for attr_name, attr_value in attrib.items():
-            if attr_name.startswith('{'):
-                processed_attrib[attr_name] = attr_value
-            elif ':' in attr_name:
-                prefix, local_name = attr_name.split(':', 1)
-                if prefix in self.namespaces:
-                    processed_attrib['{%s}%s' % (
-                        self.namespaces[prefix], local_name)] = attr_value
-                else:
-                    processed_attrib[attr_name] = attr_value
-            else:
-                processed_attrib[attr_name] = attr_value
-
-        if child_elements:
-            with xf.element('{%s}%s' % (ns_uri, element_name), attrib=processed_attrib):
-                if text:
-                    xf.write(text)
-                for child in child_elements:
-                    self.add_custom_element(
-                        xf, child['name'], child['namespace'],
-                        child.get('attributes'), child.get('text'),
-                        child.get('child_elements')
-                    )
-                    self._add_newline(xf)
-        else:
-            if text is not None:
-                with xf.element('{%s}%s' % (ns_uri, element_name), attrib=processed_attrib):
-                    xf.write(text)
-            else:
-                # Для элементов с атрибутами используем etree.Element
-                element = etree.Element('{%s}%s' % (
-                    ns_uri, element_name), attrib=processed_attrib)
-                xf.write(element)
-            self._add_newline(xf)
 
 
 class AccessXMLGenerator(XMLGenerator):
@@ -161,160 +97,161 @@ class AccessXMLGenerator(XMLGenerator):
     def __init__(self):
         """Инициализация генератора для системы доступа."""
         super().__init__()
-        # Все namespaces теперь берутся из config.json
-
-    def add_object_reference(
-        self,
-        xf: xmlfile,
-        object_uid: str,
-        group_uid: str,
-        reference_uid: str = None
-    ) -> str:
-        """
-        Добавляет элемент ObjectReference.
-        """
-        ref_uid = reference_uid or gen_uid()
-        attrib = {'{%s}about' % self.namespaces['rdf']: "#_" + ref_uid}
-
-        with xf.element('{%s}ObjectReference' % self.namespaces['cim'], attrib=attrib):
-            # Используем xf.element и xf.write для правильных префиксов
-            with xf.element('{%s}ObjectReference.objectUid' % self.namespaces['cim']):
-                xf.write(object_uid)
-            self._add_newline(xf)
-
-            group_attrib = {'{%s}resource' %
-                            self.namespaces['rdf']: "#_" + group_uid}
-            with xf.element('{%s}ObjectReference.Group' % self.namespaces['cim'], attrib=group_attrib):
-                pass
-            self._add_newline(xf)
-
-        self._add_newline(xf)
-        return ref_uid
 
     def add_data_group(
         self,
         xf: xmlfile,
-        group_uid: str,
-        group_name: str,
-        parent_uid: str = None,
-        additional_attributes: Dict = None,
-        additional_elements: List[Dict] = None,
-        privilege_uid: str = None
-    ) -> str:
+        org_name: str,
+        dep_name: str,
+        dep_uid: str,
+        datagroup_uid: str = None
+    ) -> Tuple[str, str]:
         """
-        Добавляет элемент DataGroup.
-        """
-        data_group_uid = group_uid or gen_uid()
-        attrib = {'{%s}about' % self.namespaces['rdf']: "#_" + data_group_uid}
+        Добавляет DataGroup и связанный ObjectReference.
 
-        with xf.element('{%s}DataGroup' % self.namespaces['cim'], attrib=attrib):
-            # Используем xf.element для правильных префиксов
+        Returns:
+            Tuple[str, str]: (datagroup_uid, objectref_uid)
+        """
+        dg_uid = datagroup_uid or gen_uid()
+        objectref_uid = gen_uid()
+
+        # Добавляем DataGroup
+        dg_attrib = {'{%s}about' % self.namespaces['rdf']: "#_" + dg_uid}
+        with xf.element('{%s}DataGroup' % self.namespaces['cim'], attrib=dg_attrib):
+            # IdentifiedObject.name
             with xf.element('{%s}IdentifiedObject.name' % self.namespaces['cim']):
-                xf.write(group_name)
+                # Убедимся, что org_name и dep_name - строки
+                org_name_str = org_name if isinstance(
+                    org_name, str) else str(org_name)
+                dep_name_str = dep_name if isinstance(
+                    dep_name, str) else str(dep_name)
+                xf.write(f'{org_name_str}\\{dep_name_str}')
             self._add_newline(xf)
 
-            # Обязательный ParentObject
-            parent_resource = parent_uid or "#_50000dc6-0000-0000-c000-0000006d746c"
-            parent_attrib = {'{%s}resource' %
-                             self.namespaces['rdf']: parent_resource}
+            # IdentifiedObject.ParentObject (фиксированное значение)
+            parent_attrib = {
+                '{%s}resource' % self.namespaces['rdf']: "#_50000dc6-0000-0000-c000-0000006d746c"}
             with xf.element('{%s}IdentifiedObject.ParentObject' % self.namespaces['cim'], attrib=parent_attrib):
                 pass
             self._add_newline(xf)
 
-            # Добавляем стандартные атрибуты
+            # DataItem.isHostRestricted
             with xf.element('{%s}DataItem.isHostRestricted' % self.namespaces['cim']):
                 xf.write('false')
             self._add_newline(xf)
 
+            # DataItem.isUserRestricted
             with xf.element('{%s}DataItem.isUserRestricted' % self.namespaces['cim']):
                 xf.write('true')
             self._add_newline(xf)
 
-            # Добавляем обязательные элементы
-            if privilege_uid:
-                priv_attrib = {'{%s}resource' %
-                               self.namespaces['rdf']: "#_" + privilege_uid}
-                with xf.element('{%s}DataItem.Privileges' % self.namespaces['cim'], attrib=priv_attrib):
-                    pass
-                self._add_newline(xf)
-
-            # Обязательный Category
+            # DataItem.Category (фиксированное значение)
             category_attrib = {
                 '{%s}resource' % self.namespaces['rdf']: "#_20000db8-0000-0000-c000-0000006d746c"}
             with xf.element('{%s}DataItem.Category' % self.namespaces['cim'], attrib=category_attrib):
                 pass
             self._add_newline(xf)
 
-            # Обязательный DataGroup.Class
+            # DataGroup.Class (фиксированное значение)
             class_attrib = {
                 '{%s}resource' % self.namespaces['rdf']: "#_50000dc6-0000-0000-c000-0000006d746c"}
             with xf.element('{%s}DataGroup.Class' % self.namespaces['cim'], attrib=class_attrib):
                 pass
             self._add_newline(xf)
 
-            # Добавляем дополнительные атрибуты если указаны
-            if additional_attributes:
-                for key, value in additional_attributes.items():
-                    with xf.element('{%s}%s' % (self.namespaces['cim'], key)):
-                        xf.write(value)
-                    self._add_newline(xf)
-
-            # Добавляем дополнительные элементы если указаны
-            if additional_elements:
-                for elem in additional_elements:
-                    ns = elem.get('namespace', 'cim')
-                    ns_uri = self.namespaces.get(ns, '')
-                    attrib_dict = {}
-                    if elem.get('resource'):
-                        attrib_dict['{%s}resource' %
-                                    self.namespaces['rdf']] = elem['resource']
-                    with xf.element('{%s}%s' % (ns_uri, elem['name']), attrib=attrib_dict):
-                        pass
-                    self._add_newline(xf)
+            # DataGroup.Objects (связь с ObjectReference)
+            objects_attrib = {'{%s}resource' %
+                              self.namespaces['rdf']: "#_" + objectref_uid}
+            with xf.element('{%s}DataGroup.Objects' % self.namespaces['cim'], attrib=objects_attrib):
+                pass
+            self._add_newline(xf)
 
         self._add_newline(xf)
-        return data_group_uid
+
+        # Добавляем ObjectReference
+        or_attrib = {'{%s}about' %
+                     self.namespaces['rdf']: "#_" + objectref_uid}
+        with xf.element('{%s}ObjectReference' % self.namespaces['cim'], attrib=or_attrib):
+            # ObjectReference.objectUid
+            with xf.element('{%s}ObjectReference.objectUid' % self.namespaces['cim']):
+                xf.write(dep_uid)
+            self._add_newline(xf)
+
+            # ObjectReference.Group (связь с DataGroup)
+            group_attrib = {'{%s}resource' %
+                            self.namespaces['rdf']: "#_" + dg_uid}
+            with xf.element('{%s}ObjectReference.Group' % self.namespaces['cim'], attrib=group_attrib):
+                pass
+            self._add_newline(xf)
+
+        self._add_newline(xf)
+
+        return dg_uid, objectref_uid
 
     def add_role_with_privilege(
         self,
         xf: xmlfile,
-        role_name: str,
-        parent_uid: str,
-        data_items_uids: List[str],
-        operation_uid: str = "#_2000065d-0000-0000-c000-0000006d746c",
-        role_kind: str = "cim:RoleKind.allow"
-    ) -> tuple:
+        org_name: str,
+        dep_name: str,
+        folder_uid: str,
+        datagroup_uids: List[str] = None
+    ) -> Tuple[str, str]:
         """
-        Добавляет роль с привилегиями.
+        Добавляет роль с привилегиями для нескольких групп данных.
 
         Returns:
-            tuple: (role_uid, privilege_uid)
+            Tuple[str, str]: (role_uid, privilege_uid)
         """
-        role_uid = gen_uid()
+        # Обеспечиваем совместимость с возможными вызовами без datagroup_uids
+        if datagroup_uids is None:
+            datagroup_uids = []
+
+        r_uid = gen_uid()
         privilege_uid = gen_uid()
 
-        # Добавляем роль
-        with xf.element('{%s}Role' % self.namespaces['cim'],
-                        attrib={'{%s}about' % self.namespaces['rdf']: "#_" + role_uid}):
+        # Добавляем Role
+        role_attrib = {'{%s}about' % self.namespaces['rdf']: "#_" + r_uid}
+        with xf.element('{%s}Role' % self.namespaces['cim'], attrib=role_attrib):
+            # IdentifiedObject.name
+            role_template = get_config_value(
+                'csv_processing.role_template') or "Чтение записей под подр-ю {org_name}\\{dep_name}"
+            # Убедимся, что org_name и dep_name - строки
+            org_name_str = org_name if isinstance(
+                org_name, str) else str(org_name)
+            dep_name_str = dep_name if isinstance(
+                dep_name, str) else str(dep_name)
+            role_name = role_template.format(
+                org_name=org_name_str, dep_name=dep_name_str)
+
             with xf.element('{%s}IdentifiedObject.name' % self.namespaces['cim']):
                 xf.write(role_name)
             self._add_newline(xf)
 
-            # Используем xf.element для правильных префиксов
+            # IdentifiedObject.ParentObject
             parent_attrib = {'{%s}resource' %
-                             self.namespaces['rdf']: "#_" + parent_uid}
+                             self.namespaces['rdf']: "#_" + folder_uid}
             with xf.element('{%s}IdentifiedObject.ParentObject' % self.namespaces['cim'], attrib=parent_attrib):
                 pass
             self._add_newline(xf)
 
+            # Role.isHost
             with xf.element('{%s}Role.isHost' % self.namespaces['cim']):
                 xf.write('false')
             self._add_newline(xf)
 
+            # Role.isUser
             with xf.element('{%s}Role.isUser' % self.namespaces['cim']):
                 xf.write('true')
             self._add_newline(xf)
 
+            # Role.kind
+            kind_attrib = {'{%s}resource' %
+                           self.namespaces['rdf']: "cim:RoleKind.allow"}
+            with xf.element('{%s}Role.kind' % self.namespaces['cim'], attrib=kind_attrib):
+                pass
+            self._add_newline(xf)
+
+            # Role.Privileges (связь с Privilege)
             priv_attrib = {'{%s}resource' %
                            self.namespaces['rdf']: "#_" + privilege_uid}
             with xf.element('{%s}Role.Privileges' % self.namespaces['cim'], attrib=priv_attrib):
@@ -323,42 +260,38 @@ class AccessXMLGenerator(XMLGenerator):
 
         self._add_newline(xf)
 
-        # Добавляем привилегию
-        with xf.element('{%s}Privilege' % self.namespaces['cim'],
-                        attrib={'{%s}about' % self.namespaces['rdf']: "#_" + privilege_uid}):
-            role_attrib = {'{%s}resource' %
-                           self.namespaces['rdf']: "#_" + role_uid}
-            with xf.element('{%s}Privilege.Role' % self.namespaces['cim'], attrib=role_attrib):
+        # Добавляем Privilege
+        priv_attrib = {'{%s}about' %
+                       self.namespaces['rdf']: "#_" + privilege_uid}
+        with xf.element('{%s}Privilege' % self.namespaces['cim'], attrib=priv_attrib):
+            # Privilege.Role (связь с Role)
+            role_link_attrib = {'{%s}resource' %
+                                self.namespaces['rdf']: "#_" + r_uid}
+            with xf.element('{%s}Privilege.Role' % self.namespaces['cim'], attrib=role_link_attrib):
                 pass
             self._add_newline(xf)
 
-            # Добавляем ссылки на элементы данных
-            for item_uid in data_items_uids:
+            # Privilege.DataItems (связи с DataGroups)
+            for dg_uid in datagroup_uids:
                 data_attrib = {'{%s}resource' %
-                               self.namespaces['rdf']: "#_" + item_uid}
+                               self.namespaces['rdf']: "#_" + dg_uid}
                 with xf.element('{%s}Privilege.DataItems' % self.namespaces['cim'], attrib=data_attrib):
                     pass
                 self._add_newline(xf)
 
-            operation_attrib = {'{%s}resource' %
-                                self.namespaces['rdf']: operation_uid}
+            # Privilege.Operation (фиксированное значение)
+            operation_attrib = {
+                '{%s}resource' % self.namespaces['rdf']: "#_2000065d-0000-0000-c000-0000006d746c"}
             with xf.element('{%s}Privilege.Operation' % self.namespaces['cim'], attrib=operation_attrib):
                 pass
             self._add_newline(xf)
 
         self._add_newline(xf)
-        return role_uid, privilege_uid
+
+        return r_uid, privilege_uid
 
 
 # Фабричные функции для обратной совместимости
 def create_access_generator() -> AccessXMLGenerator:
     """Создает генератор для системы доступа."""
     return AccessXMLGenerator()
-
-
-def create_custom_generator(namespaces: Dict[str, str]) -> XMLGenerator:
-    """Создает кастомный генератор XML."""
-    generator = XMLGenerator()
-    if namespaces:
-        generator.namespaces.update(namespaces)
-    return generator
