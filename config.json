@@ -1,31 +1,34 @@
 {
-    "csv_processing": {
-      "required_fields": ["org_name", "dep_name", "dep_uid"],
-      "parent_field": "dep_headdep_uid",
-      "model_version": "2025-03-04(11.7.1.7)",
-      "model_name": "Access",
-      "role_template": "Чтение записей под подр-ю {org_name}\\{dep_name}",
-      "allow_headdep_recursive": true,
-      "default_delimiter": ";"
-      
+  "csv_processing": {
+    "required_fields": [
+      "org_name",
+      "dep_name",
+      "dep_uid"
+    ],
+    "parent_field": "dep_headdep_uid",
+    "model_version": "2025-03-04(11.7.1.7)",
+    "model_name": "Access",
+    "role_template": "Чтение записей под подр-ю {org_name}\\{dep_name}",
+    "allow_headdep_recursive": true,
+    "default_delimiter": ";"
+  },
+  "xml_generation": {
+    "namespaces": {
+      "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+      "md": "http://iec.ch/TC57/61970-552/ModelDescription/1#",
+      "cim": "http://monitel.com/2021/schema-access#"
     },
-    
-    "xml_generation": {
-      "namespaces": {
-        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-        "md": "http://iec.ch/TC57/61970-552/ModelDescription/1#",
-        "cim": "http://monitel.com/2021/schema-access#"
-      }
-    },
-    
-    "file_management": {
-      "exclude_files": ["Sample.csv"],
-      "log_directory": "log"
-    },
-    
-    "logging": {
-      "level": "INFO",
-      "format": "%(asctime)s [%(levelname)s]: %(message)s",
-      "date_format": "%Y-%m-%d %H:%M:%S"
-    }
+    "me_namespace": "http://monitel.com/2014/schema-cim16#"
+  },
+  "file_management": {
+    "exclude_files": [
+      "Sample.csv"
+    ],
+    "log_directory": "log"
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s [%(levelname)s]: %(message)s",
+    "date_format": "%Y-%m-%d %H:%M:%S"
   }
+}
