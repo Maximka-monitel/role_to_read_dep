@@ -33,7 +33,8 @@ pip install -r requirements.txt
     "parent_field": "dep_headdep_uid",
     "model_version": "2025-03-04(11.7.1.7)",
     "model_name": "Access",
-    "role_template": "Чтение записей под подр-ю {org_name}\\{dep_name}",
+    "role_template": "Чтение записей по подр-ю {org_name}\\{dep_name}",
+    "role_template_with_headdep": "Чтение записей по подр-ю {org_name}\\{headdep_name}\\{dep_name}",
     "allow_headdep_recursive": true,
     "default_delimiter": ";"
   },
@@ -65,7 +66,8 @@ pip install -r requirements.txt
 - `csv_processing.parent_field` — поле с UID родительского подразделения
 - `csv_processing.model_version` — версия модели в XML
 - `csv_processing.model_name` — название модели
-- `csv_processing.role_template` — шаблон названия ролей
+- `csv_processing.role_template` — шаблон названия ролей **без головного подразделения**
+- `csv_processing.role_template_with_headdep` — шаблон названия ролей **с головным подразделением**
 - `csv_processing.allow_headdep_recursive` — разрешить рекурсивный доступ для headdep
 - `xml_generation.namespaces` — XML namespaces для генерации
 - `file_management.exclude_files` — файлы, которые будут игнорироваться

@@ -104,10 +104,19 @@ class AccessXMLGenerator(XMLGenerator):
         org_name: str,
         dep_name: str,
         dep_uid: str,
-        datagroup_uid: str = None
+        datagroup_uid: str = None,
+        headdep_name: str = None  # Добавлен параметр
     ) -> Tuple[str, str]:
         """
         Добавляет DataGroup и связанный ObjectReference.
+
+        Args:
+            xf: xmlfile объект
+            org_name: название организации
+            dep_name: название подразделения
+            dep_uid: UID подразделения
+            datagroup_uid: UID группы данных (опционально)
+            headdep_name: название головного подразделения (опционально)
 
         Returns:
             Tuple[str, str]: (datagroup_uid, objectref_uid)
@@ -118,14 +127,23 @@ class AccessXMLGenerator(XMLGenerator):
         # Добавляем DataGroup
         dg_attrib = {'{%s}about' % self.namespaces['rdf']: "#_" + dg_uid}
         with xf.element('{%s}DataGroup' % self.namespaces['cim'], attrib=dg_attrib):
-            # IdentifiedObject.name
+            # IdentifiedObject.name - формируем с учетом иерархии
+            org_name_str = org_name if isinstance(
+                org_name, str) else str(org_name)
+            dep_name_str = dep_name if isinstance(
+                dep_name, str) else str(dep_name)
+
+            if headdep_name:
+                # Формат с головным подразделением
+                headdep_name_str = headdep_name if isinstance(
+                    headdep_name, str) else str(headdep_name)
+                full_name = f'{org_name_str}\\{headdep_name_str}\\{dep_name_str}'
+            else:
+                # Формат без головного подразделения
+                full_name = f'{org_name_str}\\{dep_name_str}'
+
             with xf.element('{%s}IdentifiedObject.name' % self.namespaces['cim']):
-                # Убедимся, что org_name и dep_name - строки
-                org_name_str = org_name if isinstance(
-                    org_name, str) else str(org_name)
-                dep_name_str = dep_name if isinstance(
-                    dep_name, str) else str(dep_name)
-                xf.write(f'{org_name_str}\\{dep_name_str}')
+                xf.write(full_name)
             self._add_newline(xf)
 
             # IdentifiedObject.ParentObject (фиксированное значение)
@@ -194,14 +212,9 @@ class AccessXMLGenerator(XMLGenerator):
         org_name: str,
         dep_name: str,
         folder_uid: str,
-        datagroup_uids: List[str] = None
+        datagroup_uids: List[str] = None,
+        headdep_name: str = None
     ) -> Tuple[str, str]:
-        """
-        Добавляет роль с привилегиями для нескольких групп данных.
-
-        Returns:
-            Tuple[str, str]: (role_uid, privilege_uid)
-        """
         # Обеспечиваем совместимость с возможными вызовами без datagroup_uids
         if datagroup_uids is None:
             datagroup_uids = []
@@ -209,19 +222,38 @@ class AccessXMLGenerator(XMLGenerator):
         r_uid = gen_uid()
         privilege_uid = gen_uid()
 
+        # Определение шаблона
+        if headdep_name:
+            # Используем шаблон из конфига для случая с HeadDepartment
+            role_template = get_config_value('csv_processing.role_template_with_headdep') or \
+                "Чтение записей по подр-ю {org_name}\\{headdep_name}\\{dep_name}"
+        else:
+            # Используем стандартный шаблон
+            role_template = get_config_value('csv_processing.role_template') or \
+                "Чтение записей по подр-ю {org_name}\\{dep_name}"
+
         # Добавляем Role
         role_attrib = {'{%s}about' % self.namespaces['rdf']: "#_" + r_uid}
         with xf.element('{%s}Role' % self.namespaces['cim'], attrib=role_attrib):
             # IdentifiedObject.name
-            role_template = get_config_value(
-                'csv_processing.role_template') or "Чтение записей под подр-ю {org_name}\\{dep_name}"
-            # Убедимся, что org_name и dep_name - строки
             org_name_str = org_name if isinstance(
                 org_name, str) else str(org_name)
             dep_name_str = dep_name if isinstance(
                 dep_name, str) else str(dep_name)
-            role_name = role_template.format(
-                org_name=org_name_str, dep_name=dep_name_str)
+
+            if headdep_name:
+                headdep_name_str = headdep_name if isinstance(
+                    headdep_name, str) else str(headdep_name)
+                role_name = role_template.format(
+                    org_name=org_name_str,
+                    headdep_name=headdep_name_str,
+                    dep_name=dep_name_str
+                )
+            else:
+                role_name = role_template.format(
+                    org_name=org_name_str,
+                    dep_name=dep_name_str
+                )
 
             with xf.element('{%s}IdentifiedObject.name' % self.namespaces['cim']):
                 xf.write(role_name)
