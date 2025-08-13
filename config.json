@@ -8,7 +8,8 @@
     "parent_field": "dep_headdep_uid",
     "model_version": "2025-03-04(11.7.1.7)",
     "model_name": "Access",
-    "role_template": "Чтение записей под подр-ю {org_name}\\{dep_name}",
+    "role_template": "Чтение записей по подр-ю {org_name}\\{dep_name}",
+    "role_template_with_headdep": "Чтение записей по подр-ю {org_name}\\{headdep_name}\\{dep_name}",
     "allow_headdep_recursive": true,
     "default_delimiter": ";"
   },

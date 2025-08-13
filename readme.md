@@ -18,7 +18,61 @@
 ```sh
 pip install -r requirements.txt 
 ```
+## 📄 Конфигурация (config.json)
 
+Проект использует централизованный файл конфигурации `config.json` для настройки всех параметров:
+
+```json
+{
+  "csv_processing": {
+    "required_fields": [
+      "org_name",
+      "dep_name",
+      "dep_uid"
+    ],
+    "parent_field": "dep_headdep_uid",
+    "model_version": "2025-03-04(11.7.1.7)",
+    "model_name": "Access",
+    "role_template": "Чтение записей по подр-ю {org_name}\\{dep_name}",
+    "role_template_with_headdep": "Чтение записей по подр-ю {org_name}\\{headdep_name}\\{dep_name}",
+    "allow_headdep_recursive": true,
+    "default_delimiter": ";"
+  },
+  "xml_generation": {
+    "namespaces": {
+      "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+      "md": "http://iec.ch/TC57/61970-552/ModelDescription/1#",
+      "cim": "http://monitel.com/2021/schema-access#"
+    },
+    "me_namespace": "http://monitel.com/2014/schema-cim16#"
+  },
+  "file_management": {
+    "exclude_files": [
+      "Sample.csv"
+    ],
+    "log_directory": "log"
+  },
+  "logging": {
+    "level": "DEBUG",
+    "format": "%(asctime)s [%(levelname)s]: %(message)s",
+    "date_format": "%Y-%m-%d %H:%M:%S"
+  }
+}
+```
+
+**Параметры конфигурации:**
+
+- `csv_processing.required_fields` — обязательные поля в CSV
+- `csv_processing.parent_field` — поле с UID родительского подразделения
+- `csv_processing.model_version` — версия модели в XML
+- `csv_processing.model_name` — название модели
+- `csv_processing.role_template` — шаблон названия ролей **без головного подразделения**
+- `csv_processing.role_template_with_headdep` — шаблон названия ролей **с головным подразделением**
+- `csv_processing.allow_headdep_recursive` — разрешить рекурсивный доступ для headdep
+- `xml_generation.namespaces` — XML namespaces для генерации
+- `file_management.exclude_files` — файлы, которые будут игнорироваться
+- `file_management.log_directory` — директория для логов
+- `logging.*` — настройки логирования
 ## Формат исходного CSV
 
  Обязательные столбцы (имена должны совпадать!):
